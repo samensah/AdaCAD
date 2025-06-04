@@ -1,5 +1,5 @@
-GLOBALLEN="4096" # the maximum sequence length of the model
-MAXCTXLEN="4064" # the maximum input context length
+GLOBALLEN="10000" # the maximum sequence length of the model
+MAXCTXLEN="5" # the maximum input context length
 GENLEN="32" # the maximun generation length
 
 SEED=42

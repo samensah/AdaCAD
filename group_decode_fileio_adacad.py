@@ -89,8 +89,13 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
     batch_size = args.per_device_eval_batch_size
     assert batch_input_ids.size(1) == args.context_size
     assert args.decode_truncate_len >= 0
-    assert (args.max_seq_length - args.context_size - args.decode_truncate_len) % dec_depth == 0
+    # assert (args.max_seq_length - args.context_size - args.decode_truncate_len) % dec_depth == 0
     unit_seq_len = int((args.max_seq_length - args.context_size - args.decode_truncate_len) / dec_depth)
+    # print(f"DEBUG: max_seq_length={args.max_seq_length}")
+    # print(f"DEBUG: context_size={args.context_size}") 
+    # print(f"DEBUG: decode_truncate_len={args.decode_truncate_len}")
+    # print(f"DEBUG: dec_depth={dec_depth}")
+    # print(f"DEBUG: unit_seq_len={unit_seq_len}")
     if args.context_size > 0:
         unit_context_input_ids = batch_input_ids[:, :args.context_size].clone()
     else:
@@ -151,6 +156,11 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
         torch.distributed.all_reduce(projected_logits, group=args.gathering_group)
 
         simplex = torch.nn.functional.softmax(projected_logits, dim=-1)
+        # real_token_ids_list = torch.argmax(simplex, dim=-1).view(batch_size, unit_seq_len)
+
+        if unit_seq_len <= 0:
+            print(f"ERROR: unit_seq_len={unit_seq_len}, max_seq_length={args.max_seq_length}, context_size={args.context_size}, decode_truncate_len={args.decode_truncate_len}, dec_depth={dec_depth}")
+            raise ValueError("unit_seq_len must be > 0")
         real_token_ids_list = torch.argmax(simplex, dim=-1).view(batch_size, unit_seq_len)
 
         if args.model_category == 'causal':
@@ -230,7 +240,7 @@ def parse_args():
     parser.add_argument(
         "--max_seq_length",
         type=int,
-        default=None,
+        default=8192,
         help="The maximum total input sequence length after tokenization. Sequences longer than this will be truncated.",
     )
     parser.add_argument("--init_blank_language_model", action="store_true", help="Whether or not to use a completely blank LM.")
@@ -258,7 +268,7 @@ def parse_args():
     parser.add_argument("--big_model_inference", type=str, default="no")
     parser.add_argument("--num_gpus", type=int, default=4)
     parser.add_argument("--int4", type=str, default="no", help="If ture, will use int4 quantization.")
-    parser.add_argument("--local_dir", type=str, default="/nas-ssd2/hwang/huggingface", help="Local directory for model weights.")
+    parser.add_argument("--local_dir", type=str, default="/home/ubuntu/.cache/huggingface/hub", help="Local directory for model weights.")
     parser.add_argument("--threshold", type=float, default=0.0)
     args = parser.parse_args()
 
@@ -351,7 +361,7 @@ def main():
     elif 'llama' in args.model_name_or_path.lower():
         tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir=args.local_dir, token=hf_token,)
     elif 'mistral' in args.model_name_or_path.lower():
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir=args.local_dir, token=hf_token,)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir=args.local_dir, token=hf_token, use_fast=False, legacy=True )
     else:
         assert args.use_slow_tokenizer == True 
         if args.tokenizer_name:
@@ -578,7 +588,9 @@ def main():
 
                 input_ids = torch.LongTensor(tokenizer.encode(_fd[ctx_field_name], add_special_tokens=True)).unsqueeze(0).to(args.accelerator.device)
                 args.context_size = input_ids.size(1)
-                args.decode_truncate_len = args.orig_decode_truncate_len - args.context_size # Han: this compensates for the unknown input context size
+                # args.decode_truncate_len = args.orig_decode_truncate_len - args.context_size # Han: this compensates for the unknown input context size
+                required_space = args.decode_depth  # This should equal dec_depth
+                args.decode_truncate_len = args.max_seq_length - args.context_size - required_space
 
                 if 'filter_p' in _fd: # token filtering
                     args.filter_top_p = _fd['filter_p']
