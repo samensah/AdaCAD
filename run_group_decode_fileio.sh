@@ -7,7 +7,8 @@ numgpu=2 # should match the number of processes in the input jsonl file, default
 available_port=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
 global_seed=$1 
 multi_device_cuda=$2 # "0,1,2,3", "0", etc
-core_lm_name="specify_in_input_jsonl|mistralai/Mistral-7B-Instruct-v0.3" # facebook/opt-1.3b, google/flan-t5-xl, etc.
+# core_lm_name="specify_in_input_jsonl|mistralai/Mistral-7B-Instruct-v0.3" # facebook/opt-1.3b, google/flan-t5-xl, etc.
+core_lm_name="specify_in_input_jsonl|meta-llama/Llama-3.1-8B-Instruct"
 
 file_mode=$3
 global_max_seq_len=$4 # should be consistent with (<=) the specified models' max_seq_len

@@ -1,6 +1,6 @@
 import json
 
-def convert_relation_data(input_data, input_index=0, relation_labels=None, model_name="meta-llama/Meta-Llama-3-8B"):
+def convert_relation_data(input_data, input_index, relation_labels, model_name, fire):
     """
     Convert relation extraction data from original format to target format.
     
@@ -13,9 +13,16 @@ def convert_relation_data(input_data, input_index=0, relation_labels=None, model
         List of two dictionaries in target format
     """
     
-    # Extract subject and object spans
-    subject = ' '.join(input_data['token'][input_data['subj_start']:input_data['subj_end']+1])
-    object_entity = ' '.join(input_data['token'][input_data['obj_start']:input_data['obj_end']+1])
+
+    
+    # for fire dataset
+    if fire:
+        subject = ' '.join(input_data['token'][input_data['e1_start']:input_data['e1_end']])
+        object_entity = ' '.join(input_data['token'][input_data['e2_start']:input_data['e2_end']])
+    else:
+        # Extract subject and object spans
+        subject = ' '.join(input_data['token'][input_data['subj_start']:input_data['subj_end']+1])
+        object_entity = ' '.join(input_data['token'][input_data['obj_start']:input_data['obj_end']+1])
     relation = input_data['relation']
     
     # Create the full context string (tokens joined with spaces)
@@ -62,6 +69,9 @@ def process_file(input_file_path, output_file_path, model_name="meta-llama/Meta-
         output_file_path: Path to output JSONL file
         model_name: Model name to assign
     """
+    is_fire_dataset=False
+    if 'fire' in input_file_path:
+        is_fire_dataset = True
     
     with open(input_file_path, 'r') as f:
         # Read all lines if it's JSONL, or single JSON object
@@ -78,32 +88,43 @@ def process_file(input_file_path, output_file_path, model_name="meta-llama/Meta-
     with open(output_file_path, 'w') as f:
         input_index = 0
         for data in data_list:
-            converted_instances = convert_relation_data(data, input_index, relation_labels=relation_labels, model_name=model_name)
+            converted_instances = convert_relation_data(data, input_index, 
+                                                        relation_labels=relation_labels, 
+                                                        model_name=model_name, 
+                                                        fire=is_fire_dataset)
             for instance in converted_instances:
                 f.write(json.dumps(instance) + '\n')
             input_index += 1
 
 if __name__ == "__main__":
+    # meta-llama/Llama-3.1-8B-Instruct, mistralai/Mistral-7B-Instruct-v0.3, meta-llama/Meta-Llama-3-8B
+    model_name = 'meta-llama/Llama-3.1-8B-Instruct'
+    process_file(input_file_path='data/fire/test.json', 
+                 output_file_path='data/fire/nq_test.jsonl', 
+                 model_name=model_name)
+    
     process_file(input_file_path='data/biored/test.json', 
                  output_file_path='data/biored/nq_test.jsonl', 
-                 model_name="mistralai/Mistral-7B-Instruct-v0.3")
-    
-    process_file(input_file_path='data/biored/test_entred.json', 
-                 output_file_path='data/biored/nq_test_entred.jsonl', 
-                 model_name="mistralai/Mistral-7B-Instruct-v0.3")
+                 model_name=model_name)
 
     process_file(input_file_path='data/tacred/test.json', 
                  output_file_path='data/tacred/nq_test.jsonl', 
-                 model_name="mistralai/Mistral-7B-Instruct-v0.3")
-    
-    process_file(input_file_path='data/tacred/test_entred.json', 
-                 output_file_path='data/tacred/nq_test_entred.jsonl', 
-                 model_name="mistralai/Mistral-7B-Instruct-v0.3")
+                 model_name=model_name)
+
 
     process_file(input_file_path='data/refind/test.json', 
                  output_file_path='data/refind/nq_test.jsonl', 
-                 model_name="mistralai/Mistral-7B-Instruct-v0.3")
+                 model_name=model_name)
+
+
+
+
     
-    process_file(input_file_path='data/refind/test_entred.json', 
-                 output_file_path='data/refind/nq_test_entred.jsonl', 
-                 model_name="mistralai/Mistral-7B-Instruct-v0.3")
+#     process_file(input_file_path='data/tacred/test_entred.json', 
+#                  output_file_path='data/tacred/nq_test_entred.jsonl', 
+#                  model_name="mistralai/Mistral-7B-Instruct-v0.3")
+
+    
+#     process_file(input_file_path='data/refind/test_entred.json', 
+#                  output_file_path='data/refind/nq_test_entred.jsonl', 
+#                  model_name="mistralai/Mistral-7B-Instruct-v0.3")

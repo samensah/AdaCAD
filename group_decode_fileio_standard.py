@@ -151,7 +151,6 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
             #                                                     past_key_values=past_key_values,
             #                                                     cache_position=cache_position,
             #                                                     use_cache=True,)
-            # model_inputs = model.prepare_inputs_for_generation(unit_context_input_ids, past_key_values=past_key_values)
             outputs = model(**model_inputs, output_hidden_states=False)
         elif args.model_category == 'seq2seq':
             model_inputs = model.prepare_inputs_for_generation(history_decode_ids, **model_kwargs) # this incorporates past_key_values
@@ -161,36 +160,44 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
 
         score = outputs.logits[:, -1:, :].clone().contiguous()
 
-        if args.assigned_weight >= 0:
-            score1 = score.clone().to(args.accelerator.device)
-            score2 = torch.zeros(score.shape).to(args.accelerator.device)
-            score = filter_logits_top_p(score, top_p=args.filter_top_p)
-        else:
-            score1 = torch.zeros(score.shape).to(args.accelerator.device)
-            score2 = score.clone().to(args.accelerator.device)
-            score = filter_logits_top_p(score, top_p=args.filter_top_p_prior, negative_multiplier=True)
+        # COMMENTED OUT: ADACAD ensemble consensus mechanism
+        # This section implements context-aware decoding with multiple models using Jensen-Shannon Divergence
+        # for consensus. Commenting out to enable standard single-model generation.
+        # if args.assigned_weight >= 0:
+        #     score1 = score.clone().to(args.accelerator.device)
+        #     score2 = torch.zeros(score.shape).to(args.accelerator.device)
+        #     score = filter_logits_top_p(score, top_p=args.filter_top_p)
+        # else:
+        #     score1 = torch.zeros(score.shape).to(args.accelerator.device)
+        #     score2 = score.clone().to(args.accelerator.device)
+        #     score = filter_logits_top_p(score, top_p=args.filter_top_p_prior, negative_multiplier=True)
 
-        torch.distributed.all_reduce(score1, group=args.gathering_group)
-        torch.distributed.all_reduce(score2, group=args.gathering_group)
-        alpha = get_jsd(score1, score2)
-        if alpha < args.threshold:
-            alpha = args.threshold
+        # torch.distributed.all_reduce(score1, group=args.gathering_group)
+        # torch.distributed.all_reduce(score2, group=args.gathering_group)
+        # alpha = get_jsd(score1, score2)
+        # if alpha < args.threshold:
+        #     alpha = args.threshold
 
-        if args.assigned_weight >= 0:
-            score = (1 + alpha) * score
-        else:
-            score = (0 - alpha) * score
-        # score = args.assigned_weight * score
-        torch.distributed.all_reduce(score, group=args.gathering_group)
+        # if args.assigned_weight >= 0:
+        #     score = (1 + alpha) * score
+        # else:
+        #     score = (0 - alpha) * score
+        # torch.distributed.all_reduce(score, group=args.gathering_group)
 
-        projected_logits = logits_sampling_projection(score, top_p=args.projection_top_p, one_hot_value=args.one_hot_value)
+        # projected_logits = logits_sampling_projection(score, top_p=args.projection_top_p, one_hot_value=args.one_hot_value)
 
-        if not args.accelerator.is_main_process:
-            projected_logits = torch.zeros_like(projected_logits)
-        torch.distributed.all_reduce(projected_logits, group=args.gathering_group)
+        # if not args.accelerator.is_main_process:
+        #     projected_logits = torch.zeros_like(projected_logits)
+        # torch.distributed.all_reduce(projected_logits, group=args.gathering_group)
 
-        simplex = torch.nn.functional.softmax(projected_logits, dim=-1)
-        # real_token_ids_list = torch.argmax(simplex, dim=-1).view(batch_size, unit_seq_len)
+        # simplex = torch.nn.functional.softmax(projected_logits, dim=-1)
+
+        # STANDARD GENERATION: Simple greedy decoding from single model
+        # Apply top-p filtering if specified, then use greedy selection
+        if args.projection_top_p > 0.0:
+            score = filter_logits_top_p(score, top_p=args.projection_top_p)
+        
+        simplex = torch.nn.functional.softmax(score, dim=-1)
 
         if unit_seq_len <= 0:
             print(f"ERROR: unit_seq_len={unit_seq_len}, max_seq_length={args.max_seq_length}, context_size={args.context_size}, decode_truncate_len={args.decode_truncate_len}, dec_depth={dec_depth}")
@@ -339,11 +346,17 @@ def main():
     accelerator.wait_for_everyone()
 
     if args.train_mode == "decode":
-        if len(args.model_name_or_path.split('|')) > 0:
+        # changed the condition here to identify the model name for standard generation
+        if len(args.model_name_or_path.split('|')) > 1: 
             main_model_name = args.model_name_or_path.split('|')[0]
             fallback_model_name = args.model_name_or_path.split('|')[1]
-            args.model_name_or_path = main_model_name
-            args.orig_model_name_or_path = fallback_model_name
+            # For standard generation, use fallback model if main is placeholder
+            if main_model_name == "specify_in_input_jsonl":
+                args.model_name_or_path = fallback_model_name
+                args.orig_model_name_or_path = fallback_model_name
+            else:
+                args.model_name_or_path = main_model_name
+                args.orig_model_name_or_path = fallback_model_name
         else:
             args.orig_model_name_or_path = args.model_name_or_path
     else:
@@ -360,20 +373,29 @@ def main():
             proc_line = line.strip()
             if proc_line:
                 fin_data.append(json.loads(proc_line))
-    rank2model = dict()
-    for _fd in fin_data:
-        if _fd['assigned_process'] in rank2model: # sanity check
-            assert ' '.join(rank2model[_fd['assigned_process']]) == ' '.join(_fd['assigned_model'].split('|'))
-        else:
-            rank2model[_fd['assigned_process']] = _fd['assigned_model'].split('|') 
+    
+    # COMMENTED OUT: ADACAD ensemble model assignment
+    # This section sets up multiple models across different processes for ensemble decoding.
+    # Commenting out to use standard single-model generation from the bash script specification.
+    # rank2model = dict()
+    # for _fd in fin_data:
+    #     if _fd['assigned_process'] in rank2model: # sanity check
+    #         assert ' '.join(rank2model[_fd['assigned_process']]) == ' '.join(_fd['assigned_model'].split('|'))
+    #     else:
+    #         rank2model[_fd['assigned_process']] = _fd['assigned_model'].split('|') 
 
-    # Han: add gathering group
-    default_backend = torch.distributed.get_backend(torch.distributed.distributed_c10d._get_default_group())
-    args.gathering_group = torch.distributed.new_group(ranks=list(sorted(rank2model.keys())), backend=default_backend)
+    # COMMENTED OUT: ADACAD distributed communication setup
+    # This creates process groups for ensemble coordination via all_reduce operations.
+    # Not needed for standard single-model generation.
+    # default_backend = torch.distributed.get_backend(torch.distributed.distributed_c10d._get_default_group())
+    # args.gathering_group = torch.distributed.new_group(ranks=list(sorted(rank2model.keys())), backend=default_backend)
 
-    if accelerator.process_index not in rank2model.keys(): # Han: exit if not in the ensemble
-        return
-    args.model_name_or_path = rank2model[accelerator.process_index][0]
+    # COMMENTED OUT: ADACAD process filtering
+    # This exits processes not assigned to the ensemble and overrides model path from JSONL.
+    # For standard generation, we use the model specified in the bash script.
+    # if accelerator.process_index not in rank2model.keys(): # Han: exit if not in the ensemble
+    #     return
+    # args.model_name_or_path = rank2model[accelerator.process_index][0]
 
     if args.config_name:
         config = AutoConfig.from_pretrained(args.config_name)
@@ -393,7 +415,7 @@ def main():
         from transformers import GPTNeoXTokenizerFast
         tokenizer = GPTNeoXTokenizerFast.from_pretrained(args.model_name_or_path)
     elif 'llama' in args.model_name_or_path.lower():
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir=args.local_dir, token=hf_token,)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir=args.local_dir, token=hf_token, use_fast=False, legacy=True)
     elif 'mistral' in args.model_name_or_path.lower():
         tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, cache_dir=args.local_dir, token=hf_token, use_fast=False, legacy=True )
     else:
@@ -435,6 +457,7 @@ def main():
                         )
                         model = LlamaForCausalLM.from_pretrained(
                             args.model_name_or_path,
+                            config=config,
                             torch_dtype=torch.float16,
                             quantization_config=bnb_config,
                             cache_dir=args.local_dir,
@@ -443,6 +466,7 @@ def main():
                     else:
                         model = LlamaForCausalLM.from_pretrained(
                             args.model_name_or_path,
+                            config=config,
                             torch_dtype=torch.float16,
                             cache_dir=args.local_dir,
                             token=hf_token,
@@ -593,7 +617,7 @@ def main():
     ##########################################
 
     # change the output file name later
-    out_json_fn = f"{fin_path}_adacad.output_topp{args.projection_top_p}_genlen{args.decode_depth}.jsonl"
+    out_json_fn = f"{fin_path}_standard_generation.output_topp{args.projection_top_p}_genlen{args.decode_depth}.jsonl"
     if accelerator.is_main_process:
         with open(out_json_fn, 'w') as f:
             f.write('placeholder, program not finished ...\n')
@@ -612,9 +636,12 @@ def main():
         args.orig_decode_truncate_len = args.decode_truncate_len
         with torch.no_grad():
             for _fd in fin_data: # only support batch size 1 for now since the context size can be different across lines
-                if _fd['assigned_process'] != args.accelerator.process_index: # remember to unblock barriers before this line
-                    continue
-                args.assigned_weight = _fd['assigned_weight']
+                # COMMENTED OUT: ADACAD process filtering
+                # This skips processing examples not assigned to the current process in ensemble mode.
+                # For standard generation, we process all examples.
+                # if _fd['assigned_process'] != args.accelerator.process_index: # remember to unblock barriers before this line
+                #     continue
+                # args.assigned_weight = _fd['assigned_weight']
 
                 ctx_field_name = 'context_string'
                 assert ctx_field_name in _fd
@@ -645,7 +672,7 @@ def main():
                             export_dict = dict()
                             export_dict['tokens'] = [history_decode_ids.tolist()[_i]]
                             export_dict['string'] = [sampled_sequences[_i]]
-                            export_dict['assigned_process'] = _fd['assigned_process']
+                            # export_dict['assigned_process'] = _fd['assigned_process']  # Not needed for standard generation
                             export_dict['assigned_model'] = args.model_name_or_path
                             export_dict['output_index'] = len(export_list)
                             export_dict['input_index'] = _fd['input_index']
