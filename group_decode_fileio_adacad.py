@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
-# hf_token = os.getenv('HF_TOKEN', None)
-hf_token = os.getenv('HF_TOKEN_Yahoo', None)
+hf_token = os.getenv('HF_TOKEN', None)
+# hf_token = os.getenv('HF_TOKEN_Yahoo', None)
 
 def get_jsd(p, q):
     p = F.softmax(p, dim=-1)
@@ -172,14 +172,15 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
 
         torch.distributed.all_reduce(score1, group=args.gathering_group)
         torch.distributed.all_reduce(score2, group=args.gathering_group)
-        alpha = get_jsd(score1, score2)
-        if alpha < args.threshold:
-            alpha = args.threshold
+        # alpha = get_jsd(score1, score2)
+        # if alpha < args.threshold:
+        #     alpha = args.threshold
+        # alpha=1e-4
 
         if args.assigned_weight >= 0:
-            score = (1 + alpha) * score
+            score = (1 + args.alpha) * score
         else:
-            score = (0 - alpha) * score
+            score = (0 - args.alpha) * score
         # score = args.assigned_weight * score
         torch.distributed.all_reduce(score, group=args.gathering_group)
 
@@ -304,6 +305,7 @@ def parse_args():
     parser.add_argument("--int4", type=str, default="no", help="If ture, will use int4 quantization.")
     parser.add_argument("--local_dir", type=str, default="/home/ubuntu/.cache/huggingface/hub", help="Local directory for model weights.")
     parser.add_argument("--threshold", type=float, default=0.0)
+    parser.add_argument("--alpha", type=float, default=0)
     args = parser.parse_args()
 
     return args
@@ -593,7 +595,7 @@ def main():
     ##########################################
 
     # change the output file name later
-    out_json_fn = f"{fin_path}_adacad.output_topp{args.projection_top_p}_genlen{args.decode_depth}.jsonl"
+    out_json_fn = f"{fin_path}_adacad.output_topp{args.projection_top_p}_genlen{args.decode_depth}_{args.alpha}.jsonl"
     if accelerator.is_main_process:
         with open(out_json_fn, 'w') as f:
             f.write('placeholder, program not finished ...\n')

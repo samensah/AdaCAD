@@ -3,14 +3,16 @@ from pathlib import Path
 import numpy as np
 
 data_dir = Path('data/fire/')
-pred_dir = Path('llama_predictions/')
+pred_dir = Path('mistral_predictions/')
+
 
 # test file
 test_file = 'nq_test.jsonl'
 
 # prediction file
 pred_standard_file = 'nq_test.jsonl_standard_generation.output_topp0.0_genlen32.jsonl'
-pred_adacad_file = 'nq_test.jsonl_adacad.output_topp0.0_genlen32.jsonl'
+# pred_adacad_file = 'nq_test.jsonl_adacad.output_topp0.0_genlen32.jsonl'
+pred_adacad_file = 'nq_test.jsonl_adacad.output_topp0.0_genlen32_1.0.jsonl'
 assert pred_standard_file.startswith(test_file), f"Prediction file should be based on test file: {test_file}"
 assert pred_adacad_file.startswith(test_file), f"Prediction file should be based on test file: {test_file}"
 
@@ -18,6 +20,9 @@ assert pred_adacad_file.startswith(test_file), f"Prediction file should be based
 test_filepath = data_dir / test_file
 pred_standard_filepath = data_dir / pred_dir / pred_standard_file
 pred_adacad_filepath = data_dir / pred_dir / pred_adacad_file
+
+print(pred_standard_filepath)
+print(pred_adacad_filepath)
 
 
 def read_json(filepath):
@@ -30,7 +35,7 @@ test_df = read_json(filepath=test_filepath)
 odd_indices = range(1, len(test_df), 2)
 odd_gold_answers = test_df.iloc[odd_indices]['gold_answers']
 gold_labels = odd_gold_answers
-unique_labels = set(gold_labels.tolist())
+unique_labels = sorted(set(gold_labels.tolist()))
 
 # gold predictions for context-query standard generation
 pred_standard_df = read_json(filepath=pred_standard_filepath)
@@ -47,54 +52,54 @@ pred_adacad_df = read_json(filepath=pred_adacad_filepath)
 adacad_preds = pred_adacad_df['string'].apply(lambda x: x[0])
 
 def clean_prediction(text, valid_labels):
-    """Find first valid label that appears in the text"""
+    """Find first valid label that appears in the text, return 'INVALID' if not found"""
     text_lower = str(text).lower()
     for label in valid_labels:
         if str(label).lower() in text_lower:
             return label
-    return ""
+    return "no_relation"  # Mark invalid predictions
 
 # Clean predictions
 context_query_preds = context_query_preds.apply(lambda x: clean_prediction(x, unique_labels)).tolist()
 query_preds = query_preds.apply(lambda x: clean_prediction(x, unique_labels)).tolist()
 adacad_preds = adacad_preds.apply(lambda x: clean_prediction(x, unique_labels)).tolist()
 
-cq_empty_count = context_query_preds.count("")
-q_empty_count = query_preds.count("")
-a_empty_count = adacad_preds.count("")
+cq_empty_count = context_query_preds.count("no_relation")
+q_empty_count = query_preds.count("no_relation")
+a_empty_count = adacad_preds.count("no_relation")
 
 print(f"Empty predictions:")
 print(f"  Context+Query: {cq_empty_count}/{len(context_query_preds)} ({cq_empty_count/len(context_query_preds)*100:.1f}%)")
 print(f"  Query only:    {q_empty_count}/{len(query_preds)} ({q_empty_count/len(query_preds)*100:.1f}%)")
 print(f"  AdaCAD:        {a_empty_count}/{len(adacad_preds)} ({a_empty_count/len(adacad_preds)*100:.1f}%)")
 
-# Find all unique indices with empty strings in any of the prediction lists
-empty_indices = set()
+# # Find all unique indices with empty strings in any of the prediction lists
+# empty_indices = set()
 
-# Find indices of empty strings in each list
-for i, pred in enumerate(context_query_preds):
-    if pred == "":
-        empty_indices.add(i)
+# # Find indices of empty strings in each list
+# for i, pred in enumerate(context_query_preds):
+#     if pred == "":
+#         empty_indices.add(i)
 
-for i, pred in enumerate(query_preds):
-    if pred == "":
-        empty_indices.add(i)
+# for i, pred in enumerate(query_preds):
+#     if pred == "":
+#         empty_indices.add(i)
         
-for i, pred in enumerate(adacad_preds):
-    if pred == "":
-        empty_indices.add(i)
+# for i, pred in enumerate(adacad_preds):
+#     if pred == "":
+#         empty_indices.add(i)
 
-# Create filtered lists by keeping only indices NOT in empty_indices
-context_query_preds = [pred for i, pred in enumerate(context_query_preds) if i not in empty_indices]
-query_preds = [pred for i, pred in enumerate(query_preds) if i not in empty_indices]
-adacad_preds = [pred for i, pred in enumerate(adacad_preds) if i not in empty_indices]
-gold_labels = [gold for i, gold in enumerate(gold_labels) if i not in empty_indices]
+# # Create filtered lists by keeping only indices NOT in empty_indices
+# context_query_preds = [pred for i, pred in enumerate(context_query_preds) if i not in empty_indices]
+# query_preds = [pred for i, pred in enumerate(query_preds) if i not in empty_indices]
+# adacad_preds = [pred for i, pred in enumerate(adacad_preds) if i not in empty_indices]
+# gold_labels = [gold for i, gold in enumerate(gold_labels) if i not in empty_indices]
 
 print(f"\nAfter filtering:")
 print(f"  Context+Query: {len(context_query_preds)} predictions")
 print(f"  Query only:    {len(query_preds)} predictions")
 print(f"  AdaCAD:        {len(adacad_preds)} predictions")
-print(f"  Removed {len(empty_indices)} instances where the LLM failed to find valid labels")
+# print(f"  Removed {len(empty_indices)} instances where the LLM failed to find valid labels")
 
 def get_f1(key, prediction):
     correct_by_relation = ((key == prediction) & (prediction != 0)).astype(np.int32).sum()
@@ -121,6 +126,10 @@ if 'no_relation' in unique_labels_list:
 label_to_id = {'no_relation': 0}
 for i, label in enumerate(sorted(unique_labels_list), 1):
     label_to_id[label] = i
+
+# # Add INVALID as the highest ID + 1 (so it's treated as a wrong prediction)
+# max_id = max(label_to_id.values())
+# label_to_id['INVALID'] = max_id + 1
 
 # Convert string labels to IDs
 def map_labels_to_ids(labels, label_mapping):

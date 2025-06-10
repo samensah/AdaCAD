@@ -97,24 +97,27 @@ def process_file(input_file_path, output_file_path, model_name="meta-llama/Meta-
             input_index += 1
 
 if __name__ == "__main__":
-    # meta-llama/Llama-3.1-8B-Instruct, mistralai/Mistral-7B-Instruct-v0.3, meta-llama/Meta-Llama-3-8B
-    model_name = 'meta-llama/Llama-3.1-8B-Instruct'
+    # meta-llama/Llama-3.1-8B-Instruct, mistralai/Mistral-7B-Instruct-v0.3, tiiuae/Falcon3-10B-Instruct
+    model_name = 'mistralai/Mistral-7B-Instruct-v0.3'
     process_file(input_file_path='data/fire/test.json', 
                  output_file_path='data/fire/nq_test.jsonl', 
                  model_name=model_name)
+    # process_file(input_file_path='data/fire/dev.json', 
+    #              output_file_path='data/fire/nq_dev.jsonl', 
+    #              model_name=model_name)
     
-    process_file(input_file_path='data/biored/test.json', 
-                 output_file_path='data/biored/nq_test.jsonl', 
-                 model_name=model_name)
-
-    process_file(input_file_path='data/tacred/test.json', 
-                 output_file_path='data/tacred/nq_test.jsonl', 
-                 model_name=model_name)
-
+    # process_file(input_file_path='data/biored/test.json', 
+    #              output_file_path='data/biored/nq_test.jsonl', 
+    #              model_name=model_name)
 
     process_file(input_file_path='data/refind/test.json', 
                  output_file_path='data/refind/nq_test.jsonl', 
                  model_name=model_name)
+
+
+    # process_file(input_file_path='data/refind/test.json', 
+    #              output_file_path='data/refind/nq_test.jsonl', 
+    #              model_name=model_name)
 
 
 
