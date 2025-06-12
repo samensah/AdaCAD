@@ -27,18 +27,21 @@ import json
 from accelerate import InitProcessGroupKwargs
 import datetime
 import torch.nn.functional as F
+# from huggingface_hub import login
 
 from transformers import modeling_utils
 if not hasattr(modeling_utils, "ALL_PARALLEL_STYLES") or modeling_utils.ALL_PARALLEL_STYLES is None:
-    modeling_utils.ALL_PARALLEL_STYLES = ["tp", "none","colwise",'rowwise']
+    modeling_utils.ALL_PARALLEL_STYLES = ["tp", "none","colwise",'rowwise', 'rowwise_rep', 'colwise_rep']
 
 
 logger = logging.getLogger(__name__)
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
-hf_token = os.getenv('HF_TOKEN', None)
-# hf_token = os.getenv('HF_TOKEN_Yahoo', None)
+# hf_token = os.getenv('HF_TOKEN', None)
+hf_token = os.getenv('HF_TOKEN_Yahoo', None)
+# print(f"DEBUG: hf_token={hf_token}")
+# login(token=hf_token)
 
 def get_jsd(p, q):
     p = F.softmax(p, dim=-1)
@@ -158,8 +161,15 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
             outputs = model(**model_inputs, output_hidden_states=False)
         else:
             raise ValueError("model category not supported")
-
-        score = outputs.logits[:, -1:, :].clone().contiguous()
+        
+        if len(outputs.logits.shape) == 4:
+            # Handle 4D case: [batch_size, extra_dim, seq_len, vocab_size]
+            # Extract last token from seq_len dimension (dim 2)
+            score = outputs.logits[:, :, -1:, :].clone().contiguous()  # [1, 1, 1, 200029]
+            # Squeeze the extra dimension to get [batch_size, 1, vocab_size]
+            score = score.squeeze(1)  # [1, 1, 200029]
+        else:
+            score = outputs.logits[:, -1:, :].clone().contiguous()
 
         if args.assigned_weight >= 0:
             score1 = score.clone().to(args.accelerator.device)
@@ -175,7 +185,6 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
         # alpha = get_jsd(score1, score2)
         # if alpha < args.threshold:
         #     alpha = args.threshold
-        # alpha=1e-4
 
         if args.assigned_weight >= 0:
             score = (1 + args.alpha) * score
@@ -595,6 +604,7 @@ def main():
     ##########################################
 
     # change the output file name later
+    # 
     out_json_fn = f"{fin_path}_adacad.output_topp{args.projection_top_p}_genlen{args.decode_depth}_{args.alpha}.jsonl"
     if accelerator.is_main_process:
         with open(out_json_fn, 'w') as f:

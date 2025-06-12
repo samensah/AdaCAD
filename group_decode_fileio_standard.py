@@ -30,8 +30,7 @@ import torch.nn.functional as F
 
 from transformers import modeling_utils
 if not hasattr(modeling_utils, "ALL_PARALLEL_STYLES") or modeling_utils.ALL_PARALLEL_STYLES is None:
-    modeling_utils.ALL_PARALLEL_STYLES = ["tp", "none","colwise",'rowwise']
-
+    modeling_utils.ALL_PARALLEL_STYLES = ["tp", "none","colwise",'rowwise', 'rowwise_rep', 'colwise_rep']
 
 logger = logging.getLogger(__name__)
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
@@ -158,7 +157,14 @@ def decode(args, batch_input_ids, dec_depth, model, tokenizer):
         else:
             raise ValueError("model category not supported")
 
-        score = outputs.logits[:, -1:, :].clone().contiguous()
+        if len(outputs.logits.shape) == 4:
+            # Handle 4D case: [batch_size, extra_dim, seq_len, vocab_size]
+            # Extract last token from seq_len dimension (dim 2)
+            score = outputs.logits[:, :, -1:, :].clone().contiguous()  # [1, 1, 1, 200029]
+            # Squeeze the extra dimension to get [batch_size, 1, vocab_size]
+            score = score.squeeze(1)  # [1, 1, 200029]
+        else:
+            score = outputs.logits[:, -1:, :].clone().contiguous()
 
         # COMMENTED OUT: ADACAD ensemble consensus mechanism
         # This section implements context-aware decoding with multiple models using Jensen-Shannon Divergence

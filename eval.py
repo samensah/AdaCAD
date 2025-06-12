@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 data_dir = Path('data/fire/')
-pred_dir = Path('mistral_predictions/')
+pred_dir = Path('phi-4-mini-instruct/')
 
 
 # test file
@@ -12,7 +12,7 @@ test_file = 'nq_test.jsonl'
 # prediction file
 pred_standard_file = 'nq_test.jsonl_standard_generation.output_topp0.0_genlen32.jsonl'
 # pred_adacad_file = 'nq_test.jsonl_adacad.output_topp0.0_genlen32.jsonl'
-pred_adacad_file = 'nq_test.jsonl_adacad.output_topp0.0_genlen32_1.0.jsonl'
+pred_adacad_file = 'nq_test.jsonl_adacad.output_topp0.0_genlen32_0.6.jsonl'
 assert pred_standard_file.startswith(test_file), f"Prediction file should be based on test file: {test_file}"
 assert pred_adacad_file.startswith(test_file), f"Prediction file should be based on test file: {test_file}"
 
@@ -34,8 +34,8 @@ def read_json(filepath):
 test_df = read_json(filepath=test_filepath)
 odd_indices = range(1, len(test_df), 2)
 odd_gold_answers = test_df.iloc[odd_indices]['gold_answers']
-gold_labels = odd_gold_answers
-unique_labels = sorted(set(gold_labels.tolist()))
+gold_labels = [label.lower() for label in odd_gold_answers.tolist()]
+unique_labels = sorted(set(gold_labels))
 
 # gold predictions for context-query standard generation
 pred_standard_df = read_json(filepath=pred_standard_filepath)
